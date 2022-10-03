@@ -1,0 +1,77 @@
+clc; clear variables; close all;
+
+N = 5*10^5;
+
+snr = 0:4:40;			%Tsnr (dBm)
+SNR = (10^-3)*db2pow(snr);	% (linear scale)
+
+BW = 10^6;			%Bandwidth = 1 MHz
+No = -174 + 10*log10(BW);	%Noise power (dBm)
+no = (10^-3)*db2pow(No);	%Noise power (linear scale) 
+
+d1 = 500; d2 = 200;	%Distances
+a1 = 0.9; a2=0.1;	%Power allocation coefficients
+
+eta = 4;	%Path loss exponent
+
+%Generate Rayleigh fading channel for the three users
+h1 = sqrt(d1^-eta)*(randn(N/2,1) + 1i*randn(N/2,1))/sqrt(2) ;
+h2 = sqrt(d2^-eta)*(randn(N/2,1) + 1i*randn(N/2,1))/sqrt(2);
+
+
+%Generate noise samples for the three users
+n1 = sqrt(no)*(randn(N/2,1) + 1i*randn(N/2,1))/sqrt(2);
+n2 = sqrt(no)*(randn(N/2,1) + 1i*randn(N/2,1))/sqrt(2);
+
+
+%Generate random binary message data for the three users
+x1 = randi([0 1],N,1);
+x2 = randi([0 1],N,1);
+
+
+%Create QPSKModulator and QPSKDemodulator objects
+QPSKmod = comm.QPSKModulator('BitInput',true); 
+QPSKdemod = comm.QPSKDemodulator('BitOutput',true); 
+
+%Perform QPSK modulation
+xmod1 = step(QPSKmod, x1);
+xmod2 = step(QPSKmod, x2);
+
+
+%Do super position coding
+x = sqrt(a1)*xmod1 + sqrt(a2)*xmod2;
+
+for u = 1:length(snr)
+	
+%Received signals
+   y1 = sqrt(SNR(u))*x.*h1 + n1;	%At user 1
+   y2 = sqrt(SNR(u))*x.*h2 + n2;	%At user 2
+   
+%Perform equalization
+   eq1 = y1./h1;
+   eq2 = y2./h2;
+   
+%Decode at user 1 (Direct decoding)
+   dec1 = step(QPSKdemod, eq1);
+   
+%Decode at user 2
+   dec12 = step(QPSKdemod, eq2);		%Direct demodulation to get U1's data
+   dec12_remod = step(QPSKmod, dec12);		%Remodulation of U1's data
+   rem2 = eq2 - sqrt(a1*SNR(u))*dec12_remod;	%SIC to remove U1's data
+   dec2 = step(QPSKdemod, rem2);		%Direct demodulation of remaining signal
+   
+   
+   
+%BER calculation
+   ber1(u) = biterr(dec1, x1)/N;
+   ber2(u) = biterr(dec2, x2)/N;
+  
+end
+
+semilogy(snr, ber1,'-r*', 'linewidth', 2); hold on; grid on;
+semilogy(snr, ber2, '-o', 'linewidth', 2);hold on;grid on;
+legend('User 1 (FU) \alpha_1 = 0.91','User 2 (NU) \alpha_2 = 0.09');
+xlabel('SNR');
+ylabel('BER');hold on;
+title('QPSK');
+
